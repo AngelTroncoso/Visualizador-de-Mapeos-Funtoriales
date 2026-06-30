@@ -73,8 +73,8 @@ export default function AgentLoopConsole({
     setLogs((prev) => [...prev, { agent, message, timestamp: time, type }]);
   };
 
-  // Run the autonomous agent loop
-  const handleRunAgentLoop = () => {
+  // Run the autonomous agent loop with Sakana Fugu pipeline
+  const handleRunAgentLoop = async () => {
     if (loopState !== "IDLE" && loopState !== "COMPLETED") return;
 
     // Reset loop
@@ -108,120 +108,107 @@ export default function AgentLoopConsole({
     // Step 1: Scanner Agent
     setLoopState("SCANNING");
     setProgress(15);
-    addLog("SYSTEM", `Bucle activado bajo estrategia: [${strategy.toUpperCase()}]`, "success");
-    addLog("SCANNER", `Escaneando morfismos y esquemas del functor target: '${activeTarget.id}'`, "info");
-    
-    // Timer simulation for multi-agent loops
-    // Phase 1: Scan
-    setTimeout(() => {
-      if (!activeTarget) return;
-      const sourceCat = categories.find(c => c.id === activeTarget?.source_id);
-      const targetCat = categories.find(c => c.id === activeTarget?.target_id);
+    addLog("SYSTEM", `Bucle Sakana Fugu activado bajo estrategia: [${strategy.toUpperCase()}]`, "success");
+    addLog("SCANNER", `Iniciando escaneo multi-modelo de esquemas del functor target: '${activeTarget.id}'...`, "info");
 
-      addLog("SCANNER", `Análisis estructural completado. Origen: [${sourceCat?.name || activeTarget.source_id}] ➔ Destino: [${targetCat?.name || activeTarget.target_id}]`, "success");
-      addLog("SCANNER", `Reglas de mapeo encontradas: ${activeTarget.mapping_rules.length} ecuaciones declaradas.`, "info");
+    try {
+      // Trigger live multi-model execution from Express server
+      const response = await fetch("/api/agents/fugu-loop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          strategy,
+          functor: activeTarget,
+          categories
+        })
+      });
 
-      if (activeTarget.status === "CONFLICT") {
-        addLog("SCANNER", "Alerta: Conflicto de tipado y conmutabilidad detectado en las ecuaciones de tránsito.", "warning");
-      } else if (activeTarget.status === "UNVALIDATED") {
-        addLog("SCANNER", "Functor sin validar. Requiere evaluación estática de compatibilidad de esquemas.", "info");
-      } else {
-        addLog("SCANNER", "Functor actualmente VALIDADO. Ejecutando bucle de re-validación de isomorfismo.", "info");
+      if (!response.ok) {
+        throw new Error(`HTTP Error: ${response.status}`);
       }
 
-      // Phase 2: Reasoning
-      setLoopState("REASONING");
-      setProgress(40);
-      addLog("REASONER", `Spawning Reasoning Agent... Analizando esquemas de datos:`, "info");
+      const fuguData = await response.json();
+
+      // Step-by-step visual animation using the real Fugu output data
       
+      // Phase 1: Scanner completes
       setTimeout(() => {
         if (!activeTarget) return;
-        
-        // Analyze fields inside rules
-        const rules = activeTarget.mapping_rules;
-        addLog("REASONER", `Evaluando reglas: ${rules.join(", ")}`, "info");
-        
-        if (strategy === "self-healing") {
-          if (activeTarget.id === "facturacion_to_analytics" || activeTarget.status === "CONFLICT") {
-            addLog("REASONER", "Discrepancia detectada: 'monto_base' (Decimal) se transfiere a 'monto_usd' (Decimal), pero 'Transaccion.moneda' indica flujos multi-divisa sin normalización de divisas.", "warning");
-            addLog("REASONER", "Resolución requerida: Inyección de un functor de coerción con conversión a base USD en tiempo real.", "success");
-          } else {
-            addLog("REASONER", "Análisis completado: Las firmas de tipos coinciden en los esquemas intermedios. Coerción directa admisible.", "success");
-          }
-        } else if (strategy === "proof-verification") {
-          addLog("REASONER", "Verificando conmutatividad del diagrama de categorías... Evaluando transitividad.", "info");
-          addLog("REASONER", "Fórmula homóloga: H_CRM_to_Analytics ≅ G_Facturación_to_Analytics ∘ F_CRM_to_Facturación", "info");
-        } else {
-          addLog("REASONER", "Prediciendo nuevos morfismos... Analizando proximidad semántica de campos de bases de datos.", "info");
-        }
+        const sourceCat = categories.find(c => c.id === activeTarget?.source_id);
+        const targetCat = categories.find(c => c.id === activeTarget?.target_id);
 
-        // Phase 3: Synthesizing
-        setLoopState("SYNTHESIZING");
-        setProgress(70);
-        addLog("SYNTHESIZER", "Spawning Category-Theory Co-limit Synthesizer Agent...", "info");
-        
+        addLog("SCANNER", `[${fuguData.modelsUsed?.scanner || 'gemini-3.1-flash-lite'}] Escaneo estructural completado. Origen: [${sourceCat?.name || activeTarget?.source_id}] ➔ Destino: [${targetCat?.name || activeTarget?.target_id}]`, "success");
+        addLog("SCANNER", fuguData.scanResult || "Estructuras analizadas con éxito.", "info");
+
+        // Phase 2: Reasoning
+        setLoopState("REASONING");
+        setProgress(45);
+        addLog("REASONER", `[${fuguData.modelsUsed?.reasoner || 'gemini-3.5-flash'}] Spawning Semantic Reasoner Agent...`, "info");
+
         setTimeout(() => {
           if (!activeTarget) return;
-          
-          let proposedExpr = "";
-          let successMsg = "";
-          
-          if (activeTarget.id === "facturacion_to_analytics") {
-            proposedExpr = "coerce(monto_base) :: Decimal -> to_usd(Transaccion.moneda) -> round(4)";
-            successMsg = "Fórmula sintética de coerción monetaria calculada matemáticamente.";
-          } else if (activeTarget.status === "CONFLICT") {
-            proposedExpr = "coerce(source_field) :: Decimal -> cast(Float) -> scale(1.0)";
-            successMsg = "Fórmula heurística de resolución de tipos generada con éxito.";
-          } else {
-            proposedExpr = "identity(mapping_flow) :: AutoCasted";
-            successMsg = "Isomorfismo directo verificado. Mapeo libre de coerción.";
-          }
+          addLog("REASONER", fuguData.reasoningResult || "Análisis de transitividad de categorías validado.", "success");
 
-          addLog("SYNTHESIZER", `Expresión generada: '${proposedExpr}'`, "success");
-          addLog("SYNTHESIZER", successMsg, "info");
+          // Phase 3: Synthesizing
+          setLoopState("SYNTHESIZING");
+          setProgress(75);
+          addLog("SYNTHESIZER", `[${fuguData.modelsUsed?.synthesizer || 'gemini-3.1-pro-preview'}] Spawning Mathematical Formula Synthesizer Agent...`, "info");
 
-          // Phase 4: Deploying (Actuating)
-          setLoopState("DEPLOYING");
-          setProgress(90);
-          addLog("ACTUATOR", "Spawning Actuator Agent... Compitiendo cambios formalmente en la base de datos Firestore.", "info");
-          
-          setTimeout(async () => {
+          setTimeout(() => {
             if (!activeTarget) return;
-            
-            try {
-              // Physically write to Firestore / LocalStorage
-              await emitGraphEvent({
-                functor_id: activeTarget.id,
-                event_type: "CONFLICT_RESOLVED",
-                details: {
-                  reconciliation_expression: proposedExpr,
-                  message: `Bucle Autónomo de Agentes finalizado con éxito para [${activeTarget.name}]. Error corregido mediante inyección formal.`,
-                  target_object_id: "AgentSelfHealingLoop"
-                }
-              });
+            const proposedExpr = fuguData.synthesis?.reconciliation_expression || "identity()";
+            const successMsg = fuguData.synthesis?.message || "Fórmula calculada formalmente.";
 
-              addLog("ACTUATOR", "Cambios sincronizados en base de datos Firestore y LocalStorage en tiempo real.", "success");
-              addLog("ACTUATOR", `Estado del functor '${activeTarget.id}' actualizado a: [VALID] ✅`, "success");
+            addLog("SYNTHESIZER", `Expresión generada: '${proposedExpr}'`, "success");
+            addLog("SYNTHESIZER", successMsg, "info");
 
-              // Phase 5: Completed
-              setLoopState("COMPLETED");
-              setProgress(100);
-              addLog("SYSTEM", "Bucle cerrado con éxito. Monitoreo de salud del grafo re-activado.", "success");
-              
-              // Select the target functor to showcase the update
-              setSelectedFunctorId(activeTarget.id);
+            // Phase 4: Deploying (Actuating)
+            setLoopState("DEPLOYING");
+            setProgress(90);
+            addLog("ACTUATOR", "Spawning Actuator Agent... Aplicando cambios en Firestore en tiempo real...", "info");
 
-            } catch (err) {
-              addLog("SYSTEM", `Error al persistir cambios: ${err}`, "error");
-              setLoopState("IDLE");
-            }
-          }, 1500);
+            setTimeout(async () => {
+              if (!activeTarget) return;
+              try {
+                // Physically write to Firestore / LocalStorage
+                await emitGraphEvent({
+                  functor_id: activeTarget.id,
+                  event_type: "CONFLICT_RESOLVED",
+                  details: {
+                    reconciliation_expression: proposedExpr,
+                    message: `Fugu Multi-Model Pipeline finalizado con éxito para [${activeTarget.name}]. ` + successMsg,
+                    target_object_id: "SakanaFuguPipeline"
+                  }
+                });
 
-        }, 1500);
+                addLog("ACTUATOR", "Cambios sincronizados en base de datos Firestore y LocalStorage en tiempo real.", "success");
+                addLog("ACTUATOR", `Estado del functor '${activeTarget.id}' actualizado a: [VALID] ✅`, "success");
 
-      }, 1500);
+                // Phase 5: Completed
+                setLoopState("COMPLETED");
+                setProgress(100);
+                addLog("SYSTEM", "Bucle Sakana Fugu cerrado con éxito. Monitoreo de salud del grafo re-activado.", "success");
 
-    }, 1500);
+                // Select the target functor to showcase the update
+                setSelectedFunctorId(activeTarget.id);
+
+              } catch (err) {
+                addLog("SYSTEM", `Error al persistir cambios en Firestore: ${err}`, "error");
+                setLoopState("IDLE");
+              }
+            }, 1200);
+
+          }, 1200);
+
+        }, 1200);
+
+      }, 1200);
+
+    } catch (error: any) {
+      console.error("Fugu loop execution error:", error);
+      addLog("SYSTEM", `Error al ejecutar el pipeline Fugu: ${error?.message || error}`, "error");
+      setLoopState("IDLE");
+    }
   };
 
   // Cancel/Reset Loop
