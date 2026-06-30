@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "Represents a database system as a category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique identifier of the category" },
+        "name": { "type": "string", "description": "Human readable name of the system" },
+        "description": { "type": "string", "description": "Description of what this category represents" },
+        "objects": { "type": "array", "description": "Names of data schemas or objects contained in this category" }
+      },
+      "required": ["id", "name"]
+    },
+    "Functor": {
+      "title": "Functor",
+      "description": "Represents a mapping bridge between data categories",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique ID of the functor mapping" },
+        "source_id": { "type": "string", "description": "Source category ID" },
+        "target_id": { "type": "string", "description": "Target category ID" },
+        "name": { "type": "string", "description": "Name of the mapping functor" },
+        "status": { "type": "string", "description": "VALID, CONFLICT, or UNVALIDATED" },
+        "mapping_rules": { "type": "array", "description": "Formal mapping rules" },
+        "reconciliation_expression": { "type": "string", "description": "Expression resolving a conflict if any" }
+      },
+      "required": ["id", "source_id", "target_id", "status"]
+    },
+    "GraphEvent": {
+      "title": "GraphEvent",
+      "description": "Represents a real-time modification or event affecting the graph",
+      "type": "object",
+      "properties": {
+        "functor_id": { "type": "string", "description": "ID of the target functor" },
+        "event_type": { "type": "string", "description": "CONFLICT_RESOLVED, CONFLICT_DETECTED, MAPPING_UPDATED, etc." },
+        "timestamp": { "type": "string", "description": "ISO format or server timestamp" },
+        "details": { "type": "object", "description": "Additional context payload" }
+      },
+      "required": ["functor_id", "event_type"]
+    }
+  },
+  "firestore": {
+    "categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Primary categories of the system graph"
+    },
+    "functors/{functorId}": {
+      "schema": "Functor",
+      "description": "Functorial linkages mapping source categories to target categories"
+    },
+    "graph_events/{eventId}": {
+      "schema": "GraphEvent",
+      "description": "Stream of real-time conflict, reconciliation, and validation events"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "CategoryBridge Graph",
+  "description": "Visualizador interactivo de mapeos funtoriales entre categorías con sincronización en tiempo real vía Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
