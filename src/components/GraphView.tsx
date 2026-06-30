@@ -17,10 +17,12 @@ import {
   RefreshCw,
   Info,
   Download,
-  Compass
+  Compass,
+  Cpu
 } from "lucide-react";
 import { Category, Functor, GraphEvent } from "../types";
 import { analyzeComposition, CompositePath } from "../utils/compositionAnalyzer";
+import AgentLoopConsole from "./AgentLoopConsole";
 import {
   seedDefaultData,
   clearAllCollections,
@@ -58,6 +60,9 @@ export default function GraphView({ categories, functors, events, error, isLocal
   // Composition Analyzer State (Fase 2)
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
   const [showExplanation, setShowExplanation] = useState(true);
+
+  // Active right tab (Manual Inspector vs Autonomous Agent Loop)
+  const [activeRightTab, setActiveRightTab] = useState<"inspector" | "agents">("agents");
 
   // Create Category Form State
   const [showAddCat, setShowAddCat] = useState(false);
@@ -1085,218 +1090,256 @@ export default function GraphView({ categories, functors, events, error, isLocal
           )}
         </div>
 
-        {/* INSPECTOR PANEL */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-4 flex items-center gap-1.5">
-            <Layers className="h-4 w-4 text-indigo-500" />
-            Inspector Categórico
-          </h3>
+        {/* TAB SWITCHER */}
+        <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1" id="inspector-tabs">
+          <button
+            type="button"
+            onClick={() => setActiveRightTab("inspector")}
+            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 flex items-center justify-center gap-1 cursor-pointer ${
+              activeRightTab === "inspector"
+                ? "bg-white text-slate-800 shadow-sm border border-slate-200/50"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            <Layers className="h-3.5 w-3.5 text-indigo-500" />
+            Inspector Manual
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveRightTab("agents")}
+            className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all duration-150 flex items-center justify-center gap-1 cursor-pointer ${
+              activeRightTab === "agents"
+                ? "bg-slate-900 text-amber-400 shadow border border-slate-800"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            <Cpu className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+            Bucle de Agentes AI
+          </button>
+        </div>
 
-          {!selectedCategory && !selectedFunctor ? (
-            <div className="text-center py-10 text-slate-400">
-              <HelpCircle className="h-10 w-10 mx-auto text-slate-300 mb-2" />
-              <p className="text-xs font-medium">Ningún elemento seleccionado</p>
-              <p className="text-[11px] text-slate-400 mt-1">Haz click sobre un sistema de datos o sobre las flechas de funtores para inspeccionar la estructura de mapeo.</p>
-            </div>
-          ) : selectedCategory ? (
-            /* CATEGORY DETAILED VIEW */
-            <div className="animate-in fade-in duration-150">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-[9px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Sistema / Categoría
-                </span>
-                <button
-                  onClick={() => handleDeleteCategory(selectedCategory.id)}
-                  className="text-slate-400 hover:text-rose-500 p-1 rounded-md transition"
-                  title="Eliminar Categoría"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+        {activeRightTab === "inspector" ? (
+          /* INSPECTOR PANEL */
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-4 flex items-center gap-1.5">
+              <Layers className="h-4 w-4 text-indigo-500" />
+              Inspector Categórico
+            </h3>
+
+            {!selectedCategory && !selectedFunctor ? (
+              <div className="text-center py-10 text-slate-400">
+                <HelpCircle className="h-10 w-10 mx-auto text-slate-300 mb-2" />
+                <p className="text-xs font-medium">Ningún elemento seleccionado</p>
+                <p className="text-[11px] text-slate-400 mt-1">Haz click sobre un sistema de datos o sobre las flechas de funtores para inspeccionar la estructura de mapeo.</p>
               </div>
-
-              <h4 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-1.5">
-                <Database className="h-5 w-5 text-indigo-500" />
-                {selectedCategory.name}
-              </h4>
-              <p className="text-[11px] text-slate-400 font-mono mt-0.5">ID: {selectedCategory.id}</p>
-
-              <p className="text-xs text-slate-600 mt-3 bg-slate-50 p-2.5 rounded-lg border border-slate-100 italic leading-relaxed">
-                "{selectedCategory.description || 'Sin descripción provista.'}"
-              </p>
-
-              {/* Objects inside Category */}
-              <div className="mt-5">
-                <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Objetos / Esquemas Coexistentes (Dominios)
-                </h5>
-                {selectedCategory.objects.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No hay esquemas definidos en esta categoría.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedCategory.objects.map((obj, i) => (
-                      <span
-                        key={i}
-                        className="text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2.5 py-1 rounded-md tracking-tight transition"
-                      >
-                        {obj}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            /* FUNCTOR DETAILED VIEW */
-            <div className="animate-in fade-in duration-150">
-              <div className="flex justify-between items-start mb-2">
-                <span className="text-[9px] font-bold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  Mapeo / Functor Homólogo
-                </span>
-                <button
-                  onClick={() => handleDeleteFunctor(selectedFunctor!.id)}
-                  className="text-slate-400 hover:text-rose-500 p-1 rounded-md transition"
-                  title="Eliminar Functor"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-
-              <h4 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-1">
-                <Layers className="h-5 w-5 text-indigo-500" />
-                {selectedFunctor!.name}
-              </h4>
-              <p className="text-[11px] text-slate-400 font-mono mt-0.5">ID: {selectedFunctor!.id}</p>
-
-              {/* Direction Indicator */}
-              <div className="mt-4 flex items-center justify-between bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100 text-xs font-medium text-slate-700">
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-indigo-500 uppercase font-bold">Origen</span>
-                  <span className="font-semibold text-indigo-950">{selectedFunctor!.source_id}</span>
-                </div>
-                <ArrowRight className="h-4 w-4 text-indigo-400 animate-pulse" />
-                <div className="flex flex-col text-right">
-                  <span className="text-[9px] text-indigo-500 uppercase font-bold">Destino</span>
-                  <span className="font-semibold text-indigo-950">{selectedFunctor!.target_id}</span>
-                </div>
-              </div>
-
-              {/* Status Section */}
-              <div className="mt-5 border-t border-slate-100 pt-4">
-                <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Estado Funtorial
-                </h5>
-                <div className="flex items-center gap-2">
-                  {selectedFunctor!.status === "VALID" ? (
-                    <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
-                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                      VALIDADO (Sincronizado)
-                    </span>
-                  ) : selectedFunctor!.status === "CONFLICT" ? (
-                    <span className="flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">
-                      <AlertTriangle className="h-4 w-4 text-rose-500 animate-bounce" />
-                      CON CONFLICTO
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-1 text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
-                      <HelpCircle className="h-4 w-4 text-amber-500" />
-                      PENDIENTE VALIDAR
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* Mapping Rules */}
-              <div className="mt-5">
-                <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Ecuaciones / Reglas Homólogas
-                </h5>
-                {selectedFunctor!.mapping_rules.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No hay ecuaciones de mapeo registradas.</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {selectedFunctor!.mapping_rules.map((rule, i) => (
-                      <div
-                        key={i}
-                        className="text-xs font-mono bg-slate-50 p-2 border border-slate-100 rounded-md text-slate-700 flex items-center gap-2"
-                      >
-                        <Code className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-                        <span>{rule}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Reconciliation expression */}
-              <div className="mt-5 border-t border-slate-100 pt-4">
-                <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                  Fórmula / Bloque de Coerción
-                </h5>
-                {selectedFunctor!.reconciliation_expression ? (
-                  <div className="bg-slate-900 text-emerald-400 font-mono text-xs p-3 rounded-lg shadow-inner border border-slate-800 overflow-x-auto">
-                    <code>{selectedFunctor!.reconciliation_expression}</code>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-400 italic bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                    No se requiere expresión de coerción de datos. El mapeo es isomórfico directo.
-                  </p>
-                )}
-              </div>
-
-              {/* SIMULATOR CONTROLS ON SELECT */}
-              <div className="mt-6 border-t border-slate-100 pt-5">
-                <h5 className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-3 flex items-center gap-1">
-                  <Zap className="h-3.5 w-3.5 text-indigo-500" />
-                  Simulaciones de Grafo en Tiempo Real
-                </h5>
-
-                <div className="space-y-2">
+            ) : selectedCategory ? (
+              /* CATEGORY DETAILED VIEW */
+              <div className="animate-in fade-in duration-150">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-[9px] font-bold bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Sistema / Categoría
+                  </span>
                   <button
-                    onClick={() => handleRunValidation(selectedFunctor!.id)}
-                    className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 rounded-lg transition flex items-center justify-between"
+                    onClick={() => handleDeleteCategory(selectedCategory.id)}
+                    className="text-slate-400 hover:text-rose-500 p-1 rounded-md transition"
+                    title="Eliminar Categoría"
                   >
-                    <span>Ejecutar Verificación Estática</span>
-                    <Play className="h-3.5 w-3.5 text-amber-500" />
+                    <Trash2 className="h-4 w-4" />
                   </button>
+                </div>
 
-                  {selectedFunctor!.status !== "CONFLICT" && (
-                    <button
-                      onClick={() => handleTriggerConflict(selectedFunctor!.id)}
-                      className="w-full text-left px-3 py-2 text-xs font-medium text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 rounded-lg transition flex items-center justify-between"
-                    >
-                      <span>Simular Incongruencia (Conflicto)</span>
-                      <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
-                    </button>
-                  )}
+                <h4 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-1.5">
+                  <Database className="h-5 w-5 text-indigo-500" />
+                  {selectedCategory.name}
+                </h4>
+                <p className="text-[11px] text-slate-400 font-mono mt-0.5">ID: {selectedCategory.id}</p>
 
-                  {selectedFunctor!.status === "CONFLICT" && (
-                    <div className="mt-3 bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100">
-                      <h6 className="text-[10px] font-bold text-indigo-900 uppercase tracking-tight mb-2">
-                        Inyectar Resolución de Conflicto
-                      </h6>
-                      <form onSubmit={(e) => handleResolveConflictSubmit(e, selectedFunctor!.id)}>
-                        <input
-                          type="text"
-                          required
-                          placeholder="coerce(monto) :: USD -> normalize(moneda)"
-                          value={reconciliationExpr}
-                          onChange={(e) => setReconciliationExpr(e.target.value)}
-                          className="w-full text-xs px-2.5 py-2 border border-slate-200 bg-white rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 mb-2 font-mono"
-                        />
-                        <button
-                          type="submit"
-                          className="w-full py-1.5 text-xs text-center font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-sm"
+                <p className="text-xs text-slate-600 mt-3 bg-slate-50 p-2.5 rounded-lg border border-slate-100 italic leading-relaxed">
+                  "{selectedCategory.description || 'Sin descripción provista.'}"
+                </p>
+
+                {/* Objects inside Category */}
+                <div className="mt-5">
+                  <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Objetos / Esquemas Coexistentes (Dominios)
+                  </h5>
+                  {selectedCategory.objects.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">No hay esquemas definidos en esta categoría.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedCategory.objects.map((obj, i) => (
+                        <span
+                          key={i}
+                          className="text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2.5 py-1 rounded-md tracking-tight transition"
                         >
-                          Aplicar Mapeo Funtorial
-                        </button>
-                      </form>
+                          {obj}
+                        </span>
+                      ))}
                     </div>
                   )}
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            ) : (
+              /* FUNCTOR DETAILED VIEW */
+              <div className="animate-in fade-in duration-150">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-[9px] font-bold bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Mapeo / Functor Homólogo
+                  </span>
+                  <button
+                    onClick={() => handleDeleteFunctor(selectedFunctor!.id)}
+                    className="text-slate-400 hover:text-rose-500 p-1 rounded-md transition"
+                    title="Eliminar Functor"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <h4 className="text-base font-bold text-slate-800 tracking-tight flex items-center gap-1">
+                  <Layers className="h-5 w-5 text-indigo-500" />
+                  {selectedFunctor!.name}
+                </h4>
+                <p className="text-[11px] text-slate-400 font-mono mt-0.5">ID: {selectedFunctor!.id}</p>
+
+                {/* Direction Indicator */}
+                <div className="mt-4 flex items-center justify-between bg-indigo-50/50 p-2.5 rounded-lg border border-indigo-100 text-xs font-medium text-slate-700">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-indigo-500 uppercase font-bold">Origen</span>
+                    <span className="font-semibold text-indigo-950">{selectedFunctor!.source_id}</span>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-indigo-400 animate-pulse" />
+                  <div className="flex flex-col text-right">
+                    <span className="text-[9px] text-indigo-500 uppercase font-bold">Destino</span>
+                    <span className="font-semibold text-indigo-950">{selectedFunctor!.target_id}</span>
+                  </div>
+                </div>
+
+                {/* Status Section */}
+                <div className="mt-5 border-t border-slate-100 pt-4">
+                  <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Estado Funtorial
+                  </h5>
+                  <div className="flex items-center gap-2">
+                    {selectedFunctor!.status === "VALID" ? (
+                      <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                        VALIDADO (Sincronizado)
+                      </span>
+                    ) : selectedFunctor!.status === "CONFLICT" ? (
+                      <span className="flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1 rounded-full">
+                        <AlertTriangle className="h-4 w-4 text-rose-500 animate-bounce" />
+                        CON CONFLICTO
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1 text-xs font-bold text-amber-600 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
+                        <HelpCircle className="h-4 w-4 text-amber-500" />
+                        PENDIENTE VALIDAR
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Mapping Rules */}
+                <div className="mt-5">
+                  <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Ecuaciones / Reglas Homólogas
+                  </h5>
+                  {selectedFunctor!.mapping_rules.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">No hay ecuaciones de mapeo registradas.</p>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {selectedFunctor!.mapping_rules.map((rule, i) => (
+                        <div
+                          key={i}
+                          className="text-xs font-mono bg-slate-50 p-2 border border-slate-100 rounded-md text-slate-700 flex items-center gap-2"
+                        >
+                          <Code className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                          <span>{rule}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Reconciliation expression */}
+                <div className="mt-5 border-t border-slate-100 pt-4">
+                  <h5 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Fórmula / Bloque de Coerción
+                  </h5>
+                  {selectedFunctor!.reconciliation_expression ? (
+                    <div className="bg-slate-900 text-emerald-400 font-mono text-xs p-3 rounded-lg shadow-inner border border-slate-800 overflow-x-auto">
+                      <code>{selectedFunctor!.reconciliation_expression}</code>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                      No se requiere expresión de coerción de datos. El mapeo es isomórfico directo.
+                    </p>
+                  )}
+                </div>
+
+                {/* SIMULATOR CONTROLS ON SELECT */}
+                <div className="mt-6 border-t border-slate-100 pt-5">
+                  <h5 className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-3 flex items-center gap-1">
+                    <Zap className="h-3.5 w-3.5 text-indigo-500" />
+                    Simulaciones de Grafo en Tiempo Real
+                  </h5>
+
+                  <div className="space-y-2">
+                    <button
+                      onClick={() => handleRunValidation(selectedFunctor!.id)}
+                      className="w-full text-left px-3 py-2 text-xs font-medium text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/80 rounded-lg transition flex items-center justify-between"
+                    >
+                      <span>Ejecutar Verificación Estática</span>
+                      <Play className="h-3.5 w-3.5 text-amber-500" />
+                    </button>
+
+                    {selectedFunctor!.status !== "CONFLICT" && (
+                      <button
+                        onClick={() => handleTriggerConflict(selectedFunctor!.id)}
+                        className="w-full text-left px-3 py-2 text-xs font-medium text-rose-700 hover:text-rose-900 bg-rose-50 hover:bg-rose-100 rounded-lg transition flex items-center justify-between"
+                      >
+                        <span>Simular Incongruencia (Conflicto)</span>
+                        <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
+                      </button>
+                    )}
+
+                    {selectedFunctor!.status === "CONFLICT" && (
+                      <div className="mt-3 bg-indigo-50/50 p-3.5 rounded-xl border border-indigo-100">
+                        <h6 className="text-[10px] font-bold text-indigo-900 uppercase tracking-tight mb-2">
+                          Inyectar Resolución de Conflicto
+                        </h6>
+                        <form onSubmit={(e) => handleResolveConflictSubmit(e, selectedFunctor!.id)}>
+                          <input
+                            type="text"
+                            required
+                            placeholder="coerce(monto) :: USD -> normalize(moneda)"
+                            value={reconciliationExpr}
+                            onChange={(e) => setReconciliationExpr(e.target.value)}
+                            className="w-full text-xs px-2.5 py-2 border border-slate-200 bg-white rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 mb-2 font-mono"
+                          />
+                          <button
+                            type="submit"
+                            className="w-full py-1.5 text-xs text-center font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition shadow-sm"
+                          >
+                            Aplicar Mapeo Funtorial
+                          </button>
+                        </form>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <AgentLoopConsole
+            categories={categories}
+            functors={functors}
+            selectedFunctorId={selectedFunctorId}
+            setSelectedFunctorId={setSelectedFunctorId}
+            compositePaths={compositePaths}
+          />
+        )}
 
         {/* RECENT EVENTS STREAM (REAL-TIME LOGS) */}
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex-1 min-h-[220px] flex flex-col">
