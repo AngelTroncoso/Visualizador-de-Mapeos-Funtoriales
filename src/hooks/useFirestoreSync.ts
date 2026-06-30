@@ -1,30 +1,93 @@
 import { useEffect, useState } from "react";
-import { signInAnonymously } from "firebase/auth";
-import { collection, onSnapshot, query, orderBy, limit } from "firebase/firestore";
+import { 
+  signInAnonymously, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  signOut, 
+  onAuthStateChanged,
+  User 
+} from "firebase/auth";
+import { 
+  collection, 
+  onSnapshot, 
+  query, 
+  orderBy, 
+  limit,
+  getDocs,
+  writeBatch,
+  doc,
+  Timestamp 
+} from "firebase/firestore";
 import { db, auth, handleFirestoreError, OperationType } from "../services/firebase";
 import { Category, Functor, GraphEvent } from "../types";
 import {
   getLocalCategories,
   getLocalFunctors,
-  getLocalEvents
+  getLocalEvents,
+  saveLocalCategories,
+  saveLocalFunctors,
+  saveLocalEvents
 } from "../services/firestoreData";
 
 export function useFirestoreSync() {
-  // Initialize with local values instantly so there's no infinite loader!
   const [categories, setCategories] = useState<Category[]>(() => getLocalCategories());
   const [functors, setFunctors] = useState<Functor[]>(() => getLocalFunctors());
   const [events, setEvents] = useState<GraphEvent[]>(() => getLocalEvents());
-  const [loading, setLoading] = useState(false); // Default to false since we load local data instantly
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [authUser, setAuthUser] = useState<any | null>(null);
-  const [isLocalSandbox, setIsLocalSandbox] = useState(true);
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [isLocalSandbox, setIsLocalSandbox] = useState(false);
 
+  // Sign in with Google
+  const loginWithGoogle = async () => {
+    setLoading(true);
+    const provider = new GoogleAuthProvider();
+    try {
+      const result = await signInWithPopup(auth, provider);
+      setAuthUser(result.user);
+      setError(null);
+    } catch (err: any) {
+      console.error("Google Auth failed:", err);
+      setError(`Error al iniciar sesión con Google: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Sign out (falls back to anonymous/guest)
+  const logout = async () => {
+    setLoading(true);
+    try {
+      await signOut(auth);
+      // signOut triggers onAuthStateChanged which will sign in anonymously
+    } catch (err: any) {
+      console.error("Signout failed:", err);
+      setError(`Error al cerrar sesión: ${err.message}`);
+      setLoading(false);
+    }
+  };
+
+  // Force Anonymous sign in (Guest mode)
+  const signInGuest = async () => {
+    setLoading(true);
+    try {
+      const creds = await signInAnonymously(auth);
+      setAuthUser(creds.user);
+      setError(null);
+    } catch (err: any) {
+      console.warn("Guest login failed:", err);
+      setIsLocalSandbox(true);
+      setLoading(false);
+    }
+  };
+
+  // Listen to Auth State
   useEffect(() => {
     let unsubscribeCategories = () => {};
     let unsubscribeFunctors = () => {};
     let unsubscribeEvents = () => {};
 
-    // 1. Setup local updates listener
+    // Local changes updates listener (for sandbox mode or instant UI refresh)
     const handleLocalUpdate = () => {
       setCategories(getLocalCategories());
       setFunctors(getLocalFunctors());
@@ -32,45 +95,90 @@ export function useFirestoreSync() {
     };
     window.addEventListener("categorybridge_local_update", handleLocalUpdate);
 
-    // Safeguard timer: if we can't establish live Firestore in 3 seconds, mark as sandbox
+    // Safeguard timer: if auth takes too long, fall back to sandbox mode gracefully
     const safeguardTimeout = setTimeout(() => {
       setIsLocalSandbox(true);
       setLoading(false);
-    }, 3000);
+    }, 4500);
 
-    // 2. Try to connect to Firebase Live Sync
-    signInAnonymously(auth)
-      .then((userCredential) => {
-        setAuthUser(userCredential.user);
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      clearTimeout(safeguardTimeout);
+      if (user) {
+        setAuthUser(user);
         setIsLocalSandbox(false);
-        console.log("Firebase Auth success. Connecting live Firestore listeners...");
+        console.log("User Authenticated. UID:", user.uid, "Anonymous:", user.isAnonymous);
 
         try {
-          // Listen to Categories live
-          const catQuery = collection(db, "categories");
+          const userId = user.uid;
+
+          // Multi-tenant migration: If user signs in with Google, and has local guest data,
+          // copy current local items to Firestore if their Firestore path is empty!
+          if (!user.isAnonymous) {
+            try {
+              const catSnap = await getDocs(collection(db, "users", userId, "categories"));
+              if (catSnap.empty) {
+                console.log("No data found in cloud. Syncing local Guest progress to Google account...");
+                const batch = writeBatch(db);
+                
+                const localCats = getLocalCategories();
+                for (const cat of localCats) {
+                  batch.set(doc(db, "users", userId, "categories", cat.id), cat);
+                }
+                
+                const localFuncs = getLocalFunctors();
+                for (const func of localFuncs) {
+                  batch.set(doc(db, "users", userId, "functors", func.id), func);
+                }
+                
+                const localEvents = getLocalEvents();
+                for (const ev of localEvents) {
+                  const evId = ev.id || `event_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+                  batch.set(doc(db, "users", userId, "graph_events", evId), {
+                    ...ev,
+                    timestamp: Timestamp.now()
+                  });
+                }
+                await batch.commit();
+                console.log("Data migration to Google account cloud storage complete!");
+              }
+            } catch (migError) {
+              console.warn("Could not auto-migrate local data to Cloud:", migError);
+            }
+          }
+
+          // Unsubscribe from any previous listeners before attaching new ones
+          unsubscribeCategories();
+          unsubscribeFunctors();
+          unsubscribeEvents();
+
+          // 1. Listen to Categories
+          const categoriesColRef = collection(db, "users", userId, "categories");
           unsubscribeCategories = onSnapshot(
-            catQuery,
+            categoriesColRef,
             (snapshot) => {
               const list: Category[] = [];
               snapshot.forEach((doc) => {
                 list.push(doc.data() as Category);
               });
+              // Always persist in local storage as well for high fidelity offline mode
               if (list.length > 0) {
                 setCategories(list);
+                localStorage.setItem("categorybridge_local_categories", JSON.stringify(list));
               }
               setLoading(false);
             },
             (err) => {
-              console.warn("Live Categories listener failed (switching to local sandbox):", err);
+              console.warn("Live Categories subcollection listener failed:", err);
+              handleFirestoreError(err, OperationType.LIST, `users/${userId}/categories`);
               setIsLocalSandbox(true);
               setLoading(false);
             }
           );
 
-          // Listen to Functors live
-          const funcQuery = collection(db, "functors");
+          // 2. Listen to Functors
+          const functorsColRef = collection(db, "users", userId, "functors");
           unsubscribeFunctors = onSnapshot(
-            funcQuery,
+            functorsColRef,
             (snapshot) => {
               const list: Functor[] = [];
               snapshot.forEach((doc) => {
@@ -78,52 +186,65 @@ export function useFirestoreSync() {
               });
               if (list.length > 0) {
                 setFunctors(list);
+                localStorage.setItem("categorybridge_local_functors", JSON.stringify(list));
               }
               setLoading(false);
             },
             (err) => {
-              console.warn("Live Functors listener failed:", err);
+              console.warn("Live Functors subcollection listener failed:", err);
+              handleFirestoreError(err, OperationType.LIST, `users/${userId}/functors`);
               setIsLocalSandbox(true);
               setLoading(false);
             }
           );
 
-          // Listen to Events live
-          const eventsQuery = query(collection(db, "graph_events"), orderBy("timestamp", "desc"), limit(30));
+          // 3. Listen to Events
+          const eventsColRef = collection(db, "users", userId, "graph_events");
+          const eventsQuery = query(eventsColRef, orderBy("timestamp", "desc"), limit(30));
           unsubscribeEvents = onSnapshot(
             eventsQuery,
             (snapshot) => {
               const list: GraphEvent[] = [];
-              snapshot.forEach((doc) => {
-                list.push({ id: doc.id, ...doc.data() } as GraphEvent);
+              snapshot.forEach((docSnap) => {
+                list.push({ id: docSnap.id, ...docSnap.data() } as GraphEvent);
               });
               if (list.length > 0) {
                 setEvents(list);
+                localStorage.setItem("categorybridge_local_events", JSON.stringify(list));
               }
               setLoading(false);
             },
             (err) => {
-              console.warn("Live Events listener failed (missing index or permission):", err);
-              // Do not crash, keep local events
+              console.warn("Live Events subcollection listener failed:", err);
+              // Fallback to local events silently, index may be building
             }
           );
+
         } catch (e: any) {
-          console.warn("Error starting live Firestore listeners:", e);
+          console.warn("Error starting live user subcollection listeners:", e);
           setIsLocalSandbox(true);
           setLoading(false);
         }
-      })
-      .catch((err) => {
-        console.warn("Firebase Anonymous Auth failed. App will run in fully featured Local Sandbox Mode:", err);
-        setIsLocalSandbox(true);
-        // Do not show a blocking screen, but keep the error logged as a warning
-        setError(`Nota: El proyecto Firebase Auth / API Key no está activo (${err.message}). Se ha activado el Modo Sandbox Local de alta fidelidad.`);
-        setLoading(false);
-      });
+      } else {
+        // If not logged in at all, sign in anonymously by default (Guest Mode)
+        console.log("No auth session found. Bootstrapping anonymous guest session...");
+        signInAnonymously(auth)
+          .then((creds) => {
+            setAuthUser(creds.user);
+            setIsLocalSandbox(false);
+          })
+          .catch((err) => {
+            console.warn("Failed anonymous sign-in, falling back to pure Local Sandbox Mode:", err);
+            setIsLocalSandbox(true);
+            setLoading(false);
+          });
+      }
+    });
 
     return () => {
       clearTimeout(safeguardTimeout);
       window.removeEventListener("categorybridge_local_update", handleLocalUpdate);
+      unsubscribeAuth();
       unsubscribeCategories();
       unsubscribeFunctors();
       unsubscribeEvents();
@@ -137,7 +258,11 @@ export function useFirestoreSync() {
     loading,
     error,
     authUser,
-    isAuthenticated: !!authUser && !isLocalSandbox,
-    isLocalSandbox
+    isAuthenticated: !!authUser && !authUser.isAnonymous,
+    isAnonymous: !!authUser && authUser.isAnonymous,
+    isLocalSandbox,
+    loginWithGoogle,
+    logout,
+    signInGuest
   };
 }

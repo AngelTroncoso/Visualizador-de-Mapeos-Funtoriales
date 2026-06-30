@@ -41,17 +41,17 @@
     }
   },
   "firestore": {
-    "categories/{categoryId}": {
+    "users/{userId}/categories/{categoryId}": {
       "schema": "Category",
-      "description": "Primary categories of the system graph"
+      "description": "User isolated categories representing systems in their system graph"
     },
-    "functors/{functorId}": {
+    "users/{userId}/functors/{functorId}": {
       "schema": "Functor",
-      "description": "Functorial linkages mapping source categories to target categories"
+      "description": "User isolated functorial linkages mapping source categories to target categories"
     },
-    "graph_events/{eventId}": {
+    "users/{userId}/graph_events/{eventId}": {
       "schema": "GraphEvent",
-      "description": "Stream of real-time conflict, reconciliation, and validation events"
+      "description": "User isolated stream of real-time conflict, reconciliation, and validation events"
     }
   }
 }

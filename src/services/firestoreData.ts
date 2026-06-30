@@ -7,7 +7,7 @@ import {
   writeBatch,
   Timestamp
 } from "firebase/firestore";
-import { db, auth, handleFirestoreError, OperationType } from "./firebase";
+import { db, auth } from "./firebase";
 import { Category, Functor, GraphEvent } from "../types";
 
 // Local Storage Keys
@@ -95,7 +95,6 @@ export const defaultEvents: GraphEvent[] = [
 export function getLocalCategories(): Category[] {
   const data = localStorage.getItem(LOCAL_CATS_KEY);
   if (!data) {
-    // Initialize if empty
     localStorage.setItem(LOCAL_CATS_KEY, JSON.stringify(defaultCategories));
     return defaultCategories;
   }
@@ -147,36 +146,37 @@ export function saveLocalEvents(events: GraphEvent[]) {
   window.dispatchEvent(new Event("categorybridge_local_update"));
 }
 
-// Seed default data into Firestore & LocalStorage
+// Seed default data into Firestore for current user & LocalStorage
 export async function seedDefaultData() {
   // Always update Local Storage first
   saveLocalCategories(defaultCategories);
   saveLocalFunctors(defaultFunctors);
   saveLocalEvents(defaultEvents);
 
-  // Attempt to update Firestore if authenticated
-  if (auth.currentUser) {
+  const userId = auth.currentUser?.uid;
+  if (userId) {
     const batch = writeBatch(db);
 
     for (const cat of defaultCategories) {
-      const ref = doc(db, "categories", cat.id);
+      const ref = doc(db, "users", userId, "categories", cat.id);
       batch.set(ref, cat);
     }
 
     for (const func of defaultFunctors) {
-      const ref = doc(db, "functors", func.id);
+      const ref = doc(db, "users", userId, "functors", func.id);
       batch.set(ref, func);
     }
 
-    const eventRef = doc(collection(db, "graph_events"));
-    batch.set(eventRef, {
+    const eventId = "default_event_1";
+    const ref = doc(db, "users", userId, "graph_events", eventId);
+    batch.set(ref, {
       ...defaultEvents[0],
       timestamp: Timestamp.now()
     });
 
     try {
       await batch.commit();
-      console.log("Firestore seeding completed successfully.");
+      console.log("Firestore seeding completed successfully for user:", userId);
     } catch (error) {
       console.warn("Firestore seeding failed, using local fallback:", error);
     }
@@ -185,19 +185,19 @@ export async function seedDefaultData() {
   }
 }
 
-// Clear all collections to start fresh
+// Clear all collections for current user to start fresh
 export async function clearAllCollections() {
   // Clear Local Storage
   saveLocalCategories([]);
   saveLocalFunctors([]);
   saveLocalEvents([]);
 
-  // Attempt Firestore clean up
-  if (auth.currentUser) {
+  const userId = auth.currentUser?.uid;
+  if (userId) {
     try {
-      const categoriesSnap = await getDocs(collection(db, "categories"));
-      const functorsSnap = await getDocs(collection(db, "functors"));
-      const eventsSnap = await getDocs(collection(db, "graph_events"));
+      const categoriesSnap = await getDocs(collection(db, "users", userId, "categories"));
+      const functorsSnap = await getDocs(collection(db, "users", userId, "functors"));
+      const eventsSnap = await getDocs(collection(db, "users", userId, "graph_events"));
 
       const batch = writeBatch(db);
       categoriesSnap.forEach((doc) => batch.delete(doc.ref));
@@ -205,9 +205,9 @@ export async function clearAllCollections() {
       eventsSnap.forEach((doc) => batch.delete(doc.ref));
 
       await batch.commit();
-      console.log("Firestore cleared successfully.");
+      console.log("Firestore user data cleared successfully.");
     } catch (error) {
-      console.warn("Firestore clear failed, cleared locally:", error);
+      console.warn("Firestore user data clear failed:", error);
     }
   }
 }
@@ -219,16 +219,16 @@ export async function createCategory(cat: Category) {
   if (!list.some(c => c.id === cat.id)) {
     list.push(cat);
   } else {
-    // Update existing
     const idx = list.findIndex(c => c.id === cat.id);
     list[idx] = cat;
   }
   saveLocalCategories(list);
 
   // 2. Try Firestore
-  if (auth.currentUser) {
+  const userId = auth.currentUser?.uid;
+  if (userId) {
     try {
-      await setDoc(doc(db, "categories", cat.id), cat);
+      await setDoc(doc(db, "users", userId, "categories", cat.id), cat);
     } catch (error) {
       console.warn("Firestore setDoc categories failed, saved locally:", error);
     }
@@ -246,9 +246,14 @@ export async function deleteCategory(id: string) {
   saveLocalFunctors(funcs);
 
   // 2. Try Firestore
-  if (auth.currentUser) {
+  const userId = auth.currentUser?.uid;
+  if (userId) {
     try {
-      await deleteDoc(doc(db, "categories", id));
+      await deleteDoc(doc(db, "users", userId, "categories", id));
+      // Delete associated functors in firestore as well
+      for (const f of funcs) {
+        await deleteDoc(doc(db, "users", userId, "functors", f.id));
+      }
     } catch (error) {
       console.warn("Firestore deleteDoc categories failed, deleted locally:", error);
     }
@@ -268,9 +273,10 @@ export async function createFunctor(func: Functor) {
   saveLocalFunctors(list);
 
   // 2. Try Firestore
-  if (auth.currentUser) {
+  const userId = auth.currentUser?.uid;
+  if (userId) {
     try {
-      await setDoc(doc(db, "functors", func.id), func);
+      await setDoc(doc(db, "users", userId, "functors", func.id), func);
     } catch (error) {
       console.warn("Firestore setDoc functors failed, saved locally:", error);
     }
@@ -284,9 +290,10 @@ export async function deleteFunctor(id: string) {
   saveLocalFunctors(list);
 
   // 2. Try Firestore
-  if (auth.currentUser) {
+  const userId = auth.currentUser?.uid;
+  if (userId) {
     try {
-      await deleteDoc(doc(db, "functors", id));
+      await deleteDoc(doc(db, "users", userId, "functors", id));
     } catch (error) {
       console.warn("Firestore deleteDoc functors failed, deleted locally:", error);
     }
@@ -305,24 +312,19 @@ export async function updateFunctorStatus(id: string, status: "VALID" | "CONFLIC
   }
 
   // 2. Try Firestore
-  if (auth.currentUser) {
+  const userId = auth.currentUser?.uid;
+  if (userId) {
     try {
-      const funcSnap = await getDocs(collection(db, "functors"));
-      let targetFunc: Functor | null = null;
-      funcSnap.forEach((doc) => {
-        if (doc.id === id) {
-          targetFunc = doc.data() as Functor;
-        }
-      });
-
-      if (targetFunc) {
-        const updated: Functor = {
-          ...targetFunc,
-          status,
-          reconciliation_expression
-        };
-        await setDoc(doc(db, "functors", id), updated);
-      }
+      const updated: Functor = {
+        id,
+        source_id: list[idx]?.source_id || "",
+        target_id: list[idx]?.target_id || "",
+        name: list[idx]?.name || "",
+        status,
+        mapping_rules: list[idx]?.mapping_rules || [],
+        reconciliation_expression
+      };
+      await setDoc(doc(db, "users", userId, "functors", id), updated);
     } catch (error) {
       console.warn("Firestore updateFunctorStatus failed, saved locally:", error);
     }
@@ -340,7 +342,6 @@ export async function emitGraphEvent(event: Omit<GraphEvent, "timestamp">) {
     timestamp: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as any
   };
   localEvents.unshift(newEvent);
-  // Limit to latest 30 events
   if (localEvents.length > 30) {
     localEvents.pop();
   }
@@ -358,7 +359,6 @@ export async function emitGraphEvent(event: Omit<GraphEvent, "timestamp">) {
     newStatus = "UNVALIDATED";
   }
 
-  // Update local functor
   const funcs = getLocalFunctors();
   const fIdx = funcs.findIndex(f => f.id === event.functor_id);
   if (fIdx !== -1) {
@@ -368,14 +368,15 @@ export async function emitGraphEvent(event: Omit<GraphEvent, "timestamp">) {
   }
 
   // 2. Try Firestore
-  if (auth.currentUser) {
+  const userId = auth.currentUser?.uid;
+  if (userId) {
     try {
       const timestamp = Timestamp.now();
       const fullEvent = {
         ...event,
         timestamp
       };
-      await setDoc(doc(db, "graph_events", eventId), fullEvent);
+      await setDoc(doc(db, "users", userId, "graph_events", eventId), fullEvent);
       await updateFunctorStatus(event.functor_id, newStatus, recExpr);
     } catch (error) {
       console.warn("Firestore emitGraphEvent failed, saved locally:", error);

@@ -4,41 +4,62 @@ import { db } from "./services/firebase";
 import { useFirestoreSync } from "./hooks/useFirestoreSync";
 import GraphView from "./components/GraphView";
 import OnboardingTutorial from "./components/OnboardingTutorial";
-import { seedDefaultData } from "./services/firestoreData";
+import WelcomeLanding from "./components/WelcomeLanding";
 import {
   Activity,
   Layers,
   Wifi,
   WifiOff,
   RefreshCw,
-  Share2,
-  FileText,
-  BookOpen,
-  Info,
   HelpCircle,
   Database,
   Sparkles,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  BookOpen
 } from "lucide-react";
 
 export default function App() {
-  const { categories, functors, events, loading, error, authUser, isAuthenticated, isLocalSandbox } = useFirestoreSync();
-  const [connectionState, setConnectionState] = useState<"verifying" | "connected" | "offline">("verifying");
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [isSeedingFromError, setIsSeedingFromError] = useState(false);
+  const { 
+    categories, 
+    functors, 
+    events, 
+    loading, 
+    error, 
+    authUser, 
+    isAuthenticated, 
+    isAnonymous,
+    isLocalSandbox,
+    loginWithGoogle,
+    logout
+  } = useFirestoreSync();
 
-  // Auto-trigger onboarding tutorial on first visit
+  const [connectionState, setConnectionState] = useState<"verifying" | "connected" | "offline">("verifying");
+  const [showWelcome, setShowWelcome] = useState(() => !localStorage.getItem("categorybridge_welcome_completed"));
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Auto-trigger technical onboarding tutorial on first visit after welcome
   useEffect(() => {
     const completed = localStorage.getItem("categorybridge_onboarding_completed");
-    if (!completed) {
+    if (!completed && !showWelcome) {
       setShowOnboarding(true);
     }
-  }, []);
+  }, [showWelcome]);
 
   const handleCloseOnboarding = () => {
     localStorage.setItem("categorybridge_onboarding_completed", "true");
     setShowOnboarding(false);
+  };
+
+  const handleStartGuest = () => {
+    localStorage.setItem("categorybridge_welcome_completed", "true");
+    setShowWelcome(false);
+  };
+
+  const handleLoginGoogle = async () => {
+    await loginWithGoogle();
+    localStorage.setItem("categorybridge_welcome_completed", "true");
+    setShowWelcome(false);
   };
 
   // Mandatory Initial Connection Test as per firebase-integration guidelines
@@ -52,7 +73,6 @@ export default function App() {
         if (error.message && error.message.includes("the client is offline")) {
           setConnectionState("offline");
         } else {
-          // If the document doesn't exist but we successfully reached the server, we are connected!
           setConnectionState("connected");
         }
       }
@@ -60,22 +80,16 @@ export default function App() {
     testConnection();
   }, []);
 
-  const handleSeedFromError = async () => {
-    setIsSeedingFromError(true);
-    try {
-      await seedDefaultData();
-      window.location.reload();
-    } catch (e) {
-      console.error("Error seeding from error page:", e);
-      alert("No se pudo sembrar el demo de datos automáticamente. Comprueba que las reglas de seguridad de Firestore permitan escrituras públicas.");
-    } finally {
-      setIsSeedingFromError(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 font-sans" id="app-root-container">
-      {/* ONBOARDING TUTORIAL OVERLAY */}
+      {/* MINI LANDING / ONBOARDING SCREEN */}
+      <WelcomeLanding 
+        isOpen={showWelcome} 
+        onStartGuest={handleStartGuest} 
+        onLoginGoogle={handleLoginGoogle} 
+      />
+
+      {/* TECHNICAL TUTORIAL OVERLAY */}
       <OnboardingTutorial isOpen={showOnboarding} onClose={handleCloseOnboarding} />
 
       {/* GLOBAL HEADER */}
@@ -95,28 +109,48 @@ export default function App() {
             </div>
           </div>
 
-          {/* FIRESTORE CONNECTION STATUS & HELP BUTTON */}
+          {/* STATUS & AUTH INFO */}
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => setShowOnboarding(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-100 transition shadow-sm"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-100 transition shadow-sm cursor-pointer"
               id="help-tutorial-trigger"
             >
               <HelpCircle className="h-3.5 w-3.5 text-indigo-500" />
               Tutorial / Ayuda
             </button>
 
-            {isAuthenticated && authUser && !isLocalSandbox && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-sm animate-pulse" id="auth-success-badge">
-                <Check className="h-3 w-3 text-emerald-600" />
-                Firestore Autorizado
+            {/* Google Logged In Profile */}
+            {isAuthenticated && authUser && (
+              <div className="flex items-center gap-2" id="google-profile-badge">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-100 shadow-sm">
+                  {authUser.photoURL ? (
+                    <img src={authUser.photoURL} alt="Foto" className="h-4 w-4 rounded-full" referrerPolicy="no-referrer" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                  )}
+                  <span className="max-w-[100px] truncate">{authUser.displayName || authUser.email}</span>
+                </span>
+                <button
+                  onClick={logout}
+                  className="cursor-pointer text-[10px] font-bold text-rose-600 hover:text-rose-700 hover:bg-rose-50 px-2.5 py-1.5 rounded-xl border border-transparent hover:border-rose-100 transition shadow-sm"
+                >
+                  Salir
+                </button>
+              </div>
+            )}
+
+            {/* Guest notice tag */}
+            {isAnonymous && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-100 shadow-sm" id="auth-warning-badge">
+                <AlertTriangle className="h-3 w-3 text-amber-600 animate-pulse" />
+                Modo Invitado
               </span>
             )}
 
             {isLocalSandbox && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 shadow-sm" id="auth-warning-badge">
-                <AlertTriangle className="h-3 w-3 text-amber-600 animate-pulse" />
-                Sandbox Local Activo
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 shadow-sm animate-pulse" id="auth-sandbox-badge">
+                Sandbox Local
               </span>
             )}
 
@@ -128,12 +162,12 @@ export default function App() {
             ) : connectionState === "connected" ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
                 <Wifi className="h-3 w-3 text-emerald-500" />
-                Sincronización Activa
+                Sincronizado
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-100">
                 <WifiOff className="h-3 w-3 text-rose-500" />
-                Modo Desconectado
+                Desconectado
               </span>
             )}
           </div>
@@ -142,6 +176,31 @@ export default function App() {
 
       {/* MAIN CONTENT SPACE */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-8">
+        
+        {/* Guest Warning Banner */}
+        {isAnonymous && (
+          <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-3xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-lg shadow-amber-500/5 animate-in fade-in duration-300" id="guest-notice-banner">
+            <div className="flex gap-3">
+              <div className="p-2 bg-amber-500/20 rounded-xl text-amber-400 h-fit flex items-center justify-center">
+                <AlertTriangle className="h-5 w-5 animate-pulse" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wide">Sesión de Invitado Activa</h4>
+                <p className="text-xs text-slate-300 mt-1 font-medium">
+                  Estás en modo invitado: tus datos se guardan solo en este dispositivo. Inicia sesión con Google para sincronizar y acceder desde cualquier lugar.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={loginWithGoogle}
+              className="cursor-pointer px-4.5 py-2 text-xs font-bold text-slate-900 bg-amber-400 hover:bg-amber-300 rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5 self-start sm:self-center shrink-0"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Iniciar con Google
+            </button>
+          </div>
+        )}
+
         {/* APP EXPLANATORY BANNER */}
         <div className="bg-gradient-to-r from-indigo-900 to-slate-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl relative overflow-hidden" id="introductory-banner">
           {/* Subtle background abstract shapes */}

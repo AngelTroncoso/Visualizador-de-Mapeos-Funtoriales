@@ -1,9 +1,76 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Prototyping rules: Allow public read and write access to all collections
+    
+    // Global catch-all safety net
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Entity validation functions
+    function isValidCategory(data) {
+      return data.keys().hasAll(['id', 'name', 'description', 'objects']) &&
+             data.keys().size() == 4 &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 128 &&
+             data.description is string && data.description.size() <= 512 &&
+             data.objects is list && data.objects.size() <= 50;
+    }
+
+    function isValidFunctor(data) {
+      return data.keys().hasAll(['id', 'source_id', 'target_id', 'name', 'status', 'mapping_rules', 'reconciliation_expression']) &&
+             data.keys().size() == 7 &&
+             data.id is string && data.id.size() <= 128 &&
+             data.source_id is string && data.source_id.size() <= 128 &&
+             data.target_id is string && data.target_id.size() <= 128 &&
+             data.name is string && data.name.size() <= 128 &&
+             data.status is string && (data.status == 'VALID' || data.status == 'CONFLICT' || data.status == 'UNVALIDATED') &&
+             data.mapping_rules is list && data.mapping_rules.size() <= 50 &&
+             data.reconciliation_expression is string && data.reconciliation_expression.size() <= 1024;
+    }
+
+    function isValidEvent(data) {
+      return data.keys().hasAll(['functor_id', 'event_type', 'timestamp', 'details']) &&
+             data.keys().size() >= 4 &&
+             data.functor_id is string && data.functor_id.size() <= 128 &&
+             data.event_type is string && (data.event_type == 'CONFLICT_RESOLVED' || data.event_type == 'CONFLICT_DETECTED' || data.event_type == 'MAPPING_UPDATED' || data.event_type == 'VALIDATION_RUNNING') &&
+             data.details is map;
+    }
+
+    // Multi-tenant match blocks
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /categories/{categoryId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(categoryId) && isValidCategory(request.resource.data);
+        allow delete: if isOwner(userId) && isValidId(categoryId);
+      }
+
+      match /functors/{functorId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(functorId) && isValidFunctor(request.resource.data);
+        allow delete: if isOwner(userId) && isValidId(functorId);
+      }
+
+      match /graph_events/{eventId} {
+        allow read: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidId(eventId) && isValidEvent(request.resource.data);
+        allow delete: if isOwner(userId) && isValidId(eventId);
+      }
     }
   }
 }

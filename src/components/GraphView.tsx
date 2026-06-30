@@ -15,9 +15,12 @@ import {
   Layers,
   Sparkles,
   RefreshCw,
-  Info
+  Info,
+  Download,
+  Compass
 } from "lucide-react";
 import { Category, Functor, GraphEvent } from "../types";
+import { analyzeComposition, CompositePath } from "../utils/compositionAnalyzer";
 import {
   seedDefaultData,
   clearAllCollections,
@@ -51,6 +54,10 @@ export default function GraphView({ categories, functors, events, error, isLocal
   // Inspector and selection state
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [selectedFunctorId, setSelectedFunctorId] = useState<string | null>(null);
+
+  // Composition Analyzer State (Fase 2)
+  const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
+  const [showExplanation, setShowExplanation] = useState(true);
 
   // Create Category Form State
   const [showAddCat, setShowAddCat] = useState(false);
@@ -122,6 +129,17 @@ export default function GraphView({ categories, functors, events, error, isLocal
     } finally {
       setIsClearing(false);
     }
+  };
+
+  // Export JSON (Fase 2)
+  const handleExportJSON = (paths: CompositePath[]) => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(paths, null, 2));
+    const downloadAnchor = document.createElement("a");
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", "categorybridge_integration_paths.json");
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
   };
 
   // Mouse Drag Handlers
@@ -296,6 +314,13 @@ export default function GraphView({ categories, functors, events, error, isLocal
   const selectedCategory = categories.find((c) => c.id === selectedCategoryId);
   const selectedFunctor = functors.find((f) => f.id === selectedFunctorId);
 
+  // Real-time Composition Analysis (Fase 2)
+  const compositePaths = analyzeComposition(categories, functors);
+  const activePath = selectedPathId ? compositePaths.find((p) => p.id === selectedPathId) : null;
+  const isHighlighted = (funcId: string) => {
+    return activePath ? activePath.functors.includes(funcId) : false;
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="graph-view-workspace">
       {/* LEFT COLUMN: SVG Graph Canvas (7/12 cols) */}
@@ -368,6 +393,29 @@ export default function GraphView({ categories, functors, events, error, isLocal
           </div>
         ) : (
           <div className="flex-1 relative border border-slate-200 rounded-xl overflow-hidden bg-white flex flex-col">
+            {/* FLOATING COMPOSITION ANALYZER BADGES (Fase 2) */}
+            <div className="absolute top-4 right-4 z-10 flex flex-col gap-1.5 pointer-events-none sm:pointer-events-auto">
+              <div className="bg-slate-900/95 backdrop-blur border border-slate-800 text-white rounded-xl px-3 py-1.5 shadow-lg flex items-center gap-2 text-[11px]">
+                <Compass className="h-3.5 w-3.5 text-amber-400 animate-spin shrink-0" style={{ animationDuration: "6s" }} />
+                <span className="font-semibold tracking-tight">
+                  {compositePaths.length === 1 
+                    ? "1 ruta compuesta detectada" 
+                    : `${compositePaths.length} rutas compuestas detectadas`}
+                </span>
+              </div>
+              
+              {compositePaths.some(p => p.status === "CONFLICT") && (
+                <div className="bg-rose-600/95 backdrop-blur border border-rose-500 text-white rounded-xl px-3 py-1.5 shadow-lg shadow-rose-600/10 flex items-center gap-2 text-[11px] animate-pulse">
+                  <AlertTriangle className="h-3.5 w-3.5 text-white shrink-0 animate-bounce" />
+                  <span className="font-bold tracking-tight">
+                    {compositePaths.filter(p => p.status === "CONFLICT").length === 1
+                      ? "1 conflicto transitivo activo"
+                      : `${compositePaths.filter(p => p.status === "CONFLICT").length} conflictos transitivos`}
+                  </span>
+                </div>
+              )}
+            </div>
+
             {/* Modo Conectar - Helper Banner */}
             {isConnectMode && (
               <div className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs flex justify-between items-center m-3 animate-pulse shadow-md z-10">
@@ -401,6 +449,17 @@ export default function GraphView({ categories, functors, events, error, isLocal
             >
               {/* Arrow definitions */}
               <defs>
+                <marker
+                  id="arrow-highlight"
+                  viewBox="0 0 10 10"
+                  refX="6"
+                  refY="5"
+                  markerWidth="8"
+                  markerHeight="8"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 1 L 10 5 L 0 9 z" fill="#F59E0B" />
+                </marker>
                 <marker
                   id="arrow-valid"
                   viewBox="0 0 10 10"
@@ -494,6 +553,25 @@ export default function GraphView({ categories, functors, events, error, isLocal
                         setSelectedCategoryId(null);
                       }}
                     />
+
+                    {/* Gold composite path highlight overlay (Fase 2) */}
+                    {isHighlighted(func.id) && (
+                      <>
+                        <path
+                          d={pathData}
+                          fill="none"
+                          stroke="#F59E0B"
+                          strokeWidth={5}
+                          strokeDasharray="6, 4"
+                          markerEnd="url(#arrow-highlight)"
+                          className="transition-all duration-200 opacity-90"
+                        />
+                        {/* Animated gold traveler particle */}
+                        <circle r="5" fill="#D97706" className="shadow-lg animate-pulse">
+                          <animateMotion dur="2.5s" repeatCount="indefinite" path={pathData} />
+                        </circle>
+                      </>
+                    )}
 
                     {/* Animated glowing flow particles if status is VALID */}
                     {func.status === "VALID" && (
@@ -885,6 +963,128 @@ export default function GraphView({ categories, functors, events, error, isLocal
 
       {/* RIGHT COLUMN: Inspector Categórico & SIMULATOR (4/12 cols) */}
       <div className="lg:col-span-4 flex flex-col gap-6" id="inspector-and-simulator">
+        
+        {/* RUTAS DE INTEGRACIÓN PANEL (Fase 2 - Gancho Comercial) */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 flex flex-col" id="routes-integration-panel">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+            <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Compass className="h-4 w-4 text-amber-500 animate-spin" style={{ animationDuration: "12s" }} />
+              Rutas de Integración
+            </h3>
+            <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full uppercase font-bold border border-amber-200/50">
+              Composición de Flujo
+            </span>
+          </div>
+
+          {/* Demo Narrative Tooltip Banner */}
+          {showExplanation && (
+            <div className="bg-indigo-50/80 border border-indigo-100 rounded-xl p-3.5 mb-4 relative overflow-hidden animate-in fade-in duration-200">
+              <button 
+                type="button" 
+                onClick={() => setShowExplanation(false)} 
+                className="absolute top-2.5 right-2.5 text-indigo-400 hover:text-indigo-600 transition cursor-pointer"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+              <div className="flex gap-2">
+                <Sparkles className="h-4 w-4 text-indigo-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-xs font-bold text-indigo-950 uppercase tracking-wide">Detección Automática Activa</h4>
+                  <p className="text-[11px] text-indigo-800 mt-1 leading-relaxed font-medium font-sans">
+                    Tus datos viajan automáticamente desde CRM hasta tu panel de BI sin que tengas que mapearlo manualmente — el sistema lo detectó solo.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Paths List */}
+          {compositePaths.length === 0 ? (
+            <div className="text-center py-6 bg-slate-50 border border-slate-100 rounded-xl">
+              <Info className="h-8 w-8 text-slate-300 mx-auto mb-1.5" />
+              <p className="text-[11px] text-slate-500 max-w-[200px] mx-auto leading-relaxed">Crea múltiples funtores consecutivos para habilitar el análisis de composición transitiva (ej: A → B y B → C).</p>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+              {compositePaths.map((path) => {
+                const isActive = selectedPathId === path.id;
+                let statusBadge = "";
+                let statusText = "";
+                let itemBg = "bg-slate-50 border-slate-150 hover:bg-slate-100/60";
+                
+                if (isActive) {
+                  itemBg = "bg-amber-50/50 border-amber-300 hover:bg-amber-50/70 ring-1 ring-amber-300/30";
+                }
+
+                if (path.status === "VALID") {
+                  statusBadge = "bg-emerald-50 text-emerald-700 border-emerald-200";
+                  statusText = "✅ Compatible";
+                } else if (path.status === "CONFLICT") {
+                  statusBadge = "bg-rose-50 text-rose-700 border-rose-200 animate-pulse";
+                  statusText = "⚠️ Conflicto";
+                } else {
+                  statusBadge = "bg-amber-50 text-amber-700 border-amber-200";
+                  statusText = "⌛ Sin Validar";
+                }
+
+                // Format node trace: CRM → ERP → Analytics
+                const nodesTrace = path.nodes
+                  .map((nId) => categories.find((c) => c.id === nId)?.name || nId)
+                  .join(" → ");
+
+                return (
+                  <button
+                    key={path.id}
+                    onClick={() => setSelectedPathId(isActive ? null : path.id)}
+                    className={`w-full text-left p-3 rounded-xl border text-xs transition-all duration-150 flex flex-col gap-2 cursor-pointer ${itemBg}`}
+                  >
+                    <div className="flex items-start justify-between gap-2 w-full">
+                      <span className="font-bold text-slate-800 tracking-tight leading-snug">
+                        {nodesTrace}
+                      </span>
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase shrink-0 border ${statusBadge}`}>
+                        {statusText}
+                      </span>
+                    </div>
+
+                    <p className="text-[11px] text-slate-500 italic leading-normal">
+                      {path.details}
+                    </p>
+
+                    {/* Show type flows detailed trace if active */}
+                    {isActive && path.typeFlows.length > 0 && (
+                      <div className="mt-1 border-t border-slate-200/60 pt-2 space-y-1.5 w-full">
+                        <span className="text-[9px] font-bold uppercase text-amber-800 tracking-wider">
+                          Análisis de Tipos en Tránsito:
+                        </span>
+                        {path.typeFlows.map((flow, index) => (
+                          <div key={index} className="bg-white/80 p-2 border border-slate-200 rounded-lg text-[10px] font-mono flex flex-col gap-1">
+                            <span className="text-slate-700 break-all leading-normal">{flow.chain}</span>
+                            <span className={`font-semibold ${flow.status === "VALID" ? "text-emerald-600" : "text-rose-600 animate-pulse"}`}>
+                              {flow.message}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Export Button */}
+          {compositePaths.length > 0 && (
+            <button
+              onClick={() => handleExportJSON(compositePaths)}
+              className="mt-4 w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md cursor-pointer"
+            >
+              <Download className="h-3.5 w-3.5 text-amber-400" />
+              Exportar mapeo (JSON)
+            </button>
+          )}
+        </div>
+
         {/* INSPECTOR PANEL */}
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
           <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider border-b border-slate-100 pb-3 mb-4 flex items-center gap-1.5">
